@@ -122,11 +122,23 @@ class _TrieNode(object):
         self.sbs_child_state_cache: Optional[List[Tuple[sbs.State, bool]]] = None
         if self.parent is None:
             self.ancestors = []  # List of ancestor nodes
+        elif self.parent.ancestors is None:
+            self.ancestors = None
         else:
             self.ancestors = [self.parent] + self.parent.ancestors
 
         # Flag to track in a given round if the advantage of the node was already calculated.
         self.advantage_touched_flag = False
+
+    def get_action_sequence(self):
+        # Walks up the tree up to the root and returns the first action leading to this node.
+        seq = []
+        node = self
+        while node.parent is not None:
+            seq.append(node.index_in_parent)
+            node = node.parent
+        seq.reverse()
+        return seq
 
     def initial_log_mass_if_not_sampled(self) -> float:
         """Returns this node's initial log probability mass.
@@ -249,6 +261,110 @@ class IncrementalSBS:
         self.child_log_probability_fn = child_log_probability_fn
         self.child_transition_fn = child_transition_fn
         self.memory_aggressive = memory_aggressive
+
+    def perform_tasar(self, beam_width: int, deterministic: bool = False, nucleus_top_p: float = 1., replan_steps: int = 1) -> List[List[sbs.BeamLeaf]]:
+        """
+        Decoding method as described in "Take a Step and Reconsider: Sequence Decoding for Self-Improved Neural Combinatorial Optimization".
+
+        Parameters:
+            beam_width [int]: Beam width to use for SBS when considering alternatives.
+            deterministic [bool]: If `True`, then - similar to `perform_incremental_sbs`, the first beam of solutions
+                from the root are obtained with deterministic beam search. After that, sampling is continued with SBS.
+            nucleus_top_p [float]: Value for Top-p sampling in every round of SBS. In contrast to `perform_incremental_sbs`,
+                the value is kept constant.
+            replan_steps [int]: Number of steps to follow the best solution found so far, before re-sampling alternatives
+                with SBS.
+
+        Returns:
+            [List[List[sbs.BeamLeaf]]: For each root node, a list with length 1 is returned which contains
+                the best leaf node found.
+        """
+        # Best leaf for each root node found so far.
+        best_leaf_batch: List[Optional[sbs.BeamLeaf]] = [None] * len(self.root_nodes)
+        # Starting from each root node, carries the action sequence leading to the best leaf so far.
+        best_leaf_action_seqs_batch = [[] for _ in self.root_nodes]
+        child_log_probability_fn = self.wrap_child_log_probability_fn(self.child_log_probability_fn, False)
+        child_transition_fn = self.wrap_child_transition_fn(self.child_transition_fn, self.memory_aggressive)
+
+        # We start our journey at the root nodes.
+        root_nodes = self.root_nodes
+        for node, _ in root_nodes:
+            node.ancestors = None  # don't track ancestors
+        step_count = -1
+        # Infinite loop: take the current root nodes, and sample solutions every `replan_steps` iterations.
+        # Take the best solution and follow it for one step. Shift the root along the best trajectory by one node and
+        # repeat, until the root node becomes a leaf.
+        while True:
+            step_count = (step_count + 1) % replan_steps
+            # Get root nodes which haven't yet reached the end of the tree.
+            unfinished_root_nodes = [x for x in root_nodes if x is not None]
+            unfinished_root_indices = [i for i, x in enumerate(root_nodes) if x is not None]
+            if not len(unfinished_root_nodes):
+                # We are done.
+                break
+
+            # As long as we have root nodes, perform SBS
+            if step_count == 0:
+                sbs_leaves_batch = sbs.stochastic_beam_search(
+                    child_log_probability_fn=child_log_probability_fn,
+                    child_transition_fn=child_transition_fn,
+                    root_states=unfinished_root_nodes,
+                    beam_width=beam_width,
+                    deterministic=deterministic,
+                    top_p=1 if deterministic else nucleus_top_p
+                )
+                deterministic = False  # Switch to SBS again (if it wasn't already).
+            else:
+                # We have no fresh leaves, but keep on following the best one so far.
+                sbs_leaves_batch = [None] * len(unfinished_root_nodes)
+
+            for batch_idx, beam_leaves in enumerate(sbs_leaves_batch):
+                _idx = unfinished_root_indices[batch_idx]
+                # Get the best freshly sampled leaf (if we did sample)
+                # and check if it is better than what we already have
+                if beam_leaves is not None:
+                    best_leaf = sorted(beam_leaves, key=lambda y: self.leaf_evaluation_fn(y.state[1]), reverse=True)[0]
+                    best_leaf_node, best_leaf_client_state = best_leaf.state
+                    if best_leaf_batch[_idx] is None or self.leaf_evaluation_fn(
+                            best_leaf_client_state) > self.leaf_evaluation_fn(best_leaf_batch[_idx].state):
+                        # We have a best leaf. Add the best leaf to the solution list, but remove the trie node
+                        # from the state so we don't hold on to it.
+                        # Also add the corresponding action sequence.
+                        best_leaf_batch[_idx] = best_leaf._replace(state=best_leaf_client_state)
+                        best_leaf_action_seqs_batch[_idx] = best_leaf_node.get_action_sequence()
+
+                # Now as we have the best leaf (which can be unchanged), we get the root action (i.e., the first
+                # action from the current root node leading to this leaf) of it and remove it
+                # from the action sequence
+                root_action = best_leaf_action_seqs_batch[_idx].pop(0)
+                # Mark all freshly sampled leaves as sampled, just as in `perform_incremental_sbs`.
+                if beam_leaves is not None:
+                    for beam_leaf in beam_leaves:
+                        leaf_node, client_state = beam_leaf.state
+                        log_sampled_mass = leaf_node.initial_log_mass_if_not_sampled()
+                        leaf_node.mark_mass_sampled(log_sampled_mass)
+
+                # Shift the root nodes by one step.
+                root_node, root_state = root_nodes[_idx]
+                if root_node.sbs_child_state_cache[root_action] is not None:
+                    # This is the standard case, where we are not in `memory_aggressive` (where states of
+                    # visited nodes are immediately deleted) mode. Take the state after one step directly from cache.
+                    root_state = root_node.sbs_child_state_cache[root_action][0]
+                else:
+                    # We are in `memory_aggressive` mode: Transition again
+                    root_state, is_leaf = self.child_transition_fn([(root_state, root_action)])[0]
+                    #if is_leaf:
+                    #    root_node.mark_leaf()
+
+                root_node = root_node.children[root_action]
+                root_node.parent = None  # Remove trie above new root.
+                if not len(root_node.children) or root_node.exhausted():
+                    # is a leaf or we have sampled everything from it
+                    root_nodes[_idx] = None
+                else:
+                    root_nodes[_idx] = (root_node, root_state)  # set as new root node
+
+        return [[best_leaf] for best_leaf in best_leaf_batch]
 
     def perform_incremental_sbs(self, beam_width: int, num_rounds: int, log_prob_update_type: str = "reduce_mass", advantage_constant: float = 1.,
                                 min_max_normalize_advantage: bool = False,

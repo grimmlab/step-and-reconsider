@@ -11,7 +11,7 @@ from cvrp.config import CVRPConfig
 from jssp.config import JSSPConfig
 
 """
-Reproduction script for greedy results with a hopefully low entry barrier.
+Reproduction script for greedy results to make getting started hopefully easier.
 Alter the variable `devices_for_eval_workers` for GPU usage or more workers. 
 """
 CUDA_VISIBLE_DEVICES = "0,1"  # Must be set for ray, as it can have difficulties detecting multiple GPUs
@@ -21,14 +21,26 @@ beams_with_batch_sizes = {
 }
 
 
-def reproduce_tsp():
+def reproduce_tsp(network_type: str):
     print("================")
-    print("TSP greedy results, BQ network trained with Gumbeldore")
+    print(f"TSP greedy results, {network_type} network trained with Gumbeldore")
     print("================")
     tsp_config = TSPConfig()
     tsp_config.CUDA_VISIBLE_DEVICES = CUDA_VISIBLE_DEVICES
     tsp_config.gumbeldore_eval = False
-    tsp_config.load_checkpoint_from_path = "./model_checkpoints/tsp/gumbeldore/bq/checkpoint.pt"
+    if network_type == "bq":
+        tsp_config.architecture = "BQ"
+        tsp_config.latent_dimension = 128
+        tsp_config.num_transformer_blocks = 9
+        tsp_config.num_attention_heads = 8
+    elif network_type == "lehd":
+        tsp_config.architecture = "LEHD"
+        tsp_config.latent_dimension = 128
+        tsp_config.num_transformer_blocks = 6
+        tsp_config.num_attention_heads = 8
+    else:
+        raise ValueError(f"Unknown network type {network_type}")
+    tsp_config.load_checkpoint_from_path = f"./model_checkpoints/tsp/{network_type}/checkpoint.pt"
     tsp_config.num_epochs = 0
     tsp_config.devices_for_eval_workers = devices_for_eval_workers
     tsp_config.beams_with_batch_sizes = beams_with_batch_sizes
@@ -38,8 +50,7 @@ def reproduce_tsp():
     for num_nodes, test_path in [
         (100, "./data/tsp/tsp_100_10k_seed1234.pickle"),
         (200, "./data/tsp/tsp_200_128_seed777.pickle"),
-        (500, "./data/tsp/tsp_500_128_seed777.pickle"),
-        (1000, "./data/tsp/tsp_1000_128_seed777.pickle"),
+        (500, "./data/tsp/tsp_500_128_seed777.pickle")
     ]:
         tsp_config.test_set_path = test_path
         print(f"TSP N={num_nodes}")
@@ -49,14 +60,26 @@ def reproduce_tsp():
             print(test_loggable_dict)
 
 
-def reproduce_cvrp():
+def reproduce_cvrp(network_type: str):
     print("================")
-    print("CVRP greedy results, BQ network trained with Gumbeldore")
+    print(f"CVRP greedy results, {network_type} network trained with Gumbeldore")
     print("================")
     cvrp_config = CVRPConfig()
     cvrp_config.CUDA_VISIBLE_DEVICES = CUDA_VISIBLE_DEVICES
     cvrp_config.gumbeldore_eval = False
-    cvrp_config.load_checkpoint_from_path = "./model_checkpoints/cvrp/gumbeldore/bq/checkpoint.pt"
+    if network_type == "bq":
+        cvrp_config.architecture = "BQ"
+        cvrp_config.latent_dimension = 192
+        cvrp_config.num_transformer_blocks = 9
+        cvrp_config.num_attention_heads = 12
+    elif network_type == "lehd":
+        cvrp_config.architecture = "LEHD"
+        cvrp_config.latent_dimension = 128
+        cvrp_config.num_transformer_blocks = 6
+        cvrp_config.num_attention_heads = 8
+    else:
+        raise ValueError(f"Unknown network type {network_type}")
+    cvrp_config.load_checkpoint_from_path = f"./model_checkpoints/cvrp/{network_type}/checkpoint.pt"
     cvrp_config.num_epochs = 0
     cvrp_config.devices_for_eval_workers = devices_for_eval_workers
     cvrp_config.beams_with_batch_sizes = beams_with_batch_sizes
@@ -66,8 +89,7 @@ def reproduce_cvrp():
     for num_nodes, test_path in [
         (100, "./data/cvrp/cvrp_100_10k_test.pickle"),
         (200, "./data/cvrp/cvrp_200_128_test.pickle"),
-        (500, "./data/cvrp/cvrp_500_128_test.pickle"),
-        (1000, "./data/cvrp/cvrp_1000_128_test.pickle"),
+        (500, "./data/cvrp/cvrp_500_128_test.pickle")
     ]:
         cvrp_config.test_set_path = test_path
         print(f"CVRP N={num_nodes}")
@@ -112,7 +134,9 @@ def reproduce_jssp():
 if __name__ == '__main__':
     num_gpus = len(set([d for d in devices_for_eval_workers if d != "cpu"]))
     ray.init(num_gpus=num_gpus, logging_level="info")
-    reproduce_tsp()
-    reproduce_cvrp()
+    reproduce_tsp("bq")
+    reproduce_tsp("lehd")
+    reproduce_cvrp("bq")
+    reproduce_cvrp("lehd")
     reproduce_jssp()
     ray.shutdown()

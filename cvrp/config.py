@@ -19,7 +19,7 @@ class CVRPConfig:
         self.num_attention_heads = 12
         self.feedforward_dimension = 512
         self.dropout = 0.0
-        self.use_rezero_transformer = True  # This is only relevant for BQ, for LEHD no normalization is used.
+        self.use_rezero_transformer = True
 
         self.load_checkpoint_from_path = None  # If given, model checkpoint is loaded from this path.
         self.load_optimizer_state = True       # If True, the optimizer state is also loaded.
@@ -60,8 +60,8 @@ class CVRPConfig:
             "batch_size_per_cpu_worker": 1,  # Different batch size for CPU workers, should be smaller
             # Must be "wor" (sample without replacement), "gumbeldore" (our method), or
             # "theory_gumbeldore" (locally estimated advantage with theoretical policy improvement)
-            "search_type": "gumbeldore",
-            "beam_width": 32,  # Beam width k for SBS in each round
+            "search_type": "tasar",
+            "beam_width": 64,  # Beam width k for SBS in each round
             "num_rounds": 4,  # Number of rounds
             "pin_workers_to_core": False,  # If True, workers are pinned to a single CPU thread
             # For all the following parameters, see the docstring of
@@ -72,7 +72,8 @@ class CVRPConfig:
             "use_pure_outcomes": False,
             "normalize_advantage_by_visit_count": False,
             "perform_first_round_deterministic": False,
-            "min_nucleus_top_p": 1.
+            "min_nucleus_top_p": 1.,
+            "replan_steps": 10
         }
 
         # For evaluation. This is done with beam search, except when `gumbeldore_eval` is True, then the gumbeldore settings above are used.

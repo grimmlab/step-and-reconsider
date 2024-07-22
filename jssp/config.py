@@ -56,8 +56,8 @@ class JSSPConfig:
             "batch_size_per_cpu_worker": [1, 1, 1],  # Different batch size for CPU workers, specified as `batch_size_per_worker`.
             # Must be "wor" (sample without replacement), "gumbeldore" (our method), or
             # "theory_gumbeldore" (locally estimated advantage with theoretical policy improvement)
-            "search_type": "gumbeldore",
-            "beam_width": 32,  # Beam width k for SBS in each round
+            "search_type": "tasar",
+            "beam_width": 64,  # Beam width k for SBS in each round
             "num_rounds": 4,  # Number of rounds
             "pin_workers_to_core": False,  # If True, workers are pinned to a single CPU thread
             # For all the following parameters, see the docstring of
@@ -69,6 +69,7 @@ class JSSPConfig:
             "normalize_advantage_by_visit_count": False,
             "perform_first_round_deterministic": False,
             "min_nucleus_top_p": 1.0,
+            "replan_steps": 50
         }
 
         # For evaluation. This is done with beam search, except when `gumbeldore_eval` is True, then the gumbeldore settings above are used.

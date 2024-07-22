@@ -207,18 +207,27 @@ def async_sbs_worker(config: Config, job_pool: JobPool, network_weights: dict,
                                          trajectory_cls.to_max_evaluation_fn,
                                          memory_aggressive=memory_aggressive)
 
-                beam_leaves_batch: List[List[sbs.BeamLeaf]] = inc_sbs.perform_incremental_sbs(
-                    beam_width=config.gumbeldore_config["beam_width"],
-                    num_rounds=config.gumbeldore_config["num_rounds"],
-                    log_prob_update_type=config.gumbeldore_config["search_type"],
-                    advantage_constant=config.gumbeldore_config["advantage_constant"],
-                    min_max_normalize_advantage=config.gumbeldore_config["min_max_normalize_advantage"],
-                    expected_value_use_simple_mean=config.gumbeldore_config["expected_value_use_simple_mean"],
-                    use_pure_outcomes=config.gumbeldore_config["use_pure_outcomes"],
-                    normalize_advantage_by_visit_count=config.gumbeldore_config["normalize_advantage_by_visit_count"],
-                    perform_first_round_deterministic=config.gumbeldore_config["perform_first_round_deterministic"],
-                    min_nucleus_top_p=config.gumbeldore_config["min_nucleus_top_p"]
-                )
+                if config.gumbeldore_config["search_type"] == "tasar":
+                    # Take a step and reconsider.
+                    beam_leaves_batch: List[List[sbs.BeamLeaf]] = inc_sbs.perform_tasar(
+                        beam_width=config.gumbeldore_config["beam_width"],
+                        deterministic=config.gumbeldore_config["perform_first_round_deterministic"],
+                        nucleus_top_p=config.gumbeldore_config["min_nucleus_top_p"],
+                        replan_steps=config.gumbeldore_config["replan_steps"]
+                    )
+                else:
+                    beam_leaves_batch: List[List[sbs.BeamLeaf]] = inc_sbs.perform_incremental_sbs(
+                        beam_width=config.gumbeldore_config["beam_width"],
+                        num_rounds=config.gumbeldore_config["num_rounds"],
+                        log_prob_update_type=config.gumbeldore_config["search_type"],
+                        advantage_constant=config.gumbeldore_config["advantage_constant"],
+                        min_max_normalize_advantage=config.gumbeldore_config["min_max_normalize_advantage"],
+                        expected_value_use_simple_mean=config.gumbeldore_config["expected_value_use_simple_mean"],
+                        use_pure_outcomes=config.gumbeldore_config["use_pure_outcomes"],
+                        normalize_advantage_by_visit_count=config.gumbeldore_config["normalize_advantage_by_visit_count"],
+                        perform_first_round_deterministic=config.gumbeldore_config["perform_first_round_deterministic"],
+                        min_nucleus_top_p=config.gumbeldore_config["min_nucleus_top_p"]
+                    )
 
             results_to_push = []
             for j, result_idx in enumerate(idx_list):
