@@ -1,7 +1,7 @@
 # Take a Step and Reconsider: Sequence Decoding for Self-Improved Neural Combinatorial Optimization
 
 This is a variant of [gumbeldore](https://github.com/grimmlab/gumbeldore) in which solutions to a problem instance are decoded for data generation using the method described in the
-paper (accepted for ECAI 2024) ["Take a Step and Reconsider: Sequence Decoding for Self-Improved Neural Combinatorial Optimization"](https://arxiv.org).
+paper (accepted for ECAI 2024) ["Take a Step and Reconsider: Sequence Decoding for Self-Improved Neural Combinatorial Optimization"](https://arxiv.org/abs/2407.17206).
 The code is based on a fork of [gumbeldore](https://github.com/grimmlab/gumbeldore), and we highlight differences below.
 
 ![graphical abstract](graphical_abstract.jpg)
